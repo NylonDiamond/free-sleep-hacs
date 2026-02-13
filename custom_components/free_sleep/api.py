@@ -136,6 +136,62 @@ class FreeSleepApi:
         """Update the pod firmware."""
         await self.run_jobs(["update"])
 
+    # ── Schedules ─────────────────────────────────────────────────────
+
+    async def get_schedules(self) -> dict[str, Any]:
+        """GET /api/schedules - fetch all schedules."""
+        return await self._request("GET", "/api/schedules")
+
+    async def set_schedules(self, data: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/schedules - update schedules (partial merge)."""
+        return await self._request("POST", "/api/schedules", json_data=data)
+
+    # ── Services ─────────────────────────────────────────────────────
+
+    async def get_services(self) -> dict[str, Any]:
+        """GET /api/services - fetch services config (biometrics, sentry)."""
+        return await self._request("GET", "/api/services")
+
+    async def set_services(self, data: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/services - update services config."""
+        return await self._request("POST", "/api/services", json_data=data)
+
+    # ── Vitals ───────────────────────────────────────────────────────
+
+    async def get_vitals_summary(
+        self, side: str, start_time: str, end_time: str
+    ) -> dict[str, Any]:
+        """GET /api/metrics/vitals/summary - aggregated vitals for a time range."""
+        params = f"?side={side}&startTime={start_time}&endTime={end_time}"
+        return await self._request("GET", f"/api/metrics/vitals/summary{params}")
+
+    # ── Sleep ────────────────────────────────────────────────────────
+
+    async def get_sleep_records(
+        self, side: str, start_time: str, end_time: str
+    ) -> list[dict[str, Any]]:
+        """GET /api/metrics/sleep - sleep records for a time range."""
+        params = f"?side={side}&startTime={start_time}&endTime={end_time}"
+        return await self._request("GET", f"/api/metrics/sleep{params}")
+
+    # ── Convenience helpers ──────────────────────────────────────────
+
+    async def set_biometrics_enabled(self, enabled: bool) -> None:
+        """Enable or disable biometrics."""
+        await self.set_services({"biometrics": {"enabled": enabled}})
+
+    async def set_alarm(
+        self, side: str, day: str, alarm_data: dict[str, Any]
+    ) -> None:
+        """Update alarm settings for a side and day."""
+        await self.set_schedules({side: {day: {"alarm": alarm_data}}})
+
+    async def set_tap_config(
+        self, side: str, gesture: str, config: dict[str, Any]
+    ) -> None:
+        """Update tap gesture config for a side."""
+        await self.set_settings({side: {"taps": {gesture: config}}})
+
     async def test_connection(self) -> dict[str, Any]:
         """Test the connection by fetching device status."""
         return await self.get_device_status()

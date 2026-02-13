@@ -50,6 +50,44 @@ async def async_setup_entry(
         entities.append(
             FreeSleepCurrentTempSensor(coordinator, entry, side, side_device)
         )
+        # Vitals sensors
+        entities.append(
+            FreeSleepVitalsSensor(
+                coordinator, entry, side, side_device,
+                "avgHeartRate", "Avg Heart Rate", "mdi:heart-pulse", "bpm",
+            )
+        )
+        entities.append(
+            FreeSleepVitalsSensor(
+                coordinator, entry, side, side_device,
+                "minHeartRate", "Min Heart Rate", "mdi:heart-minus", "bpm",
+            )
+        )
+        entities.append(
+            FreeSleepVitalsSensor(
+                coordinator, entry, side, side_device,
+                "maxHeartRate", "Max Heart Rate", "mdi:heart-plus", "bpm",
+            )
+        )
+        entities.append(
+            FreeSleepVitalsSensor(
+                coordinator, entry, side, side_device,
+                "avgHRV", "Avg HRV", "mdi:heart-flash", "ms",
+            )
+        )
+        entities.append(
+            FreeSleepVitalsSensor(
+                coordinator, entry, side, side_device,
+                "avgBreathingRate", "Avg Breathing Rate", "mdi:lungs", "br/min",
+            )
+        )
+        # Sleep sensors
+        entities.append(
+            FreeSleepSleepDurationSensor(coordinator, entry, side, side_device)
+        )
+        entities.append(
+            FreeSleepTimesExitedBedSensor(coordinator, entry, side, side_device)
+        )
 
     async_add_entities(entities)
 
@@ -74,7 +112,6 @@ class FreeSleepWaterLevelSensor(
     @property
     def native_value(self) -> str:
         val = self.coordinator.data.water_level
-        # The API returns "true" or "false" for water level (true = OK)
         if val == "true":
             return "OK"
         if val == "false":
@@ -176,7 +213,7 @@ class FreeSleepVersionSensor(
 class FreeSleepCurrentTempSensor(
     CoordinatorEntity[FreeSleepCoordinator], SensorEntity
 ):
-    """Current temperature sensor for a side (useful as extra attribute)."""
+    """Current temperature sensor for a side."""
 
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.TEMPERATURE
@@ -196,3 +233,91 @@ class FreeSleepCurrentTempSensor(
     @property
     def native_value(self) -> float | None:
         return self.coordinator.data.side_status(self._side).get("currentTemperatureF")
+
+
+class FreeSleepVitalsSensor(
+    CoordinatorEntity[FreeSleepCoordinator], SensorEntity
+):
+    """Generic vitals sensor (heart rate, HRV, breathing rate)."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self, coordinator, entry, side, device_info,
+        key: str, display_name: str, icon: str, unit: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._side = side
+        self._key = key
+        self._display_name = display_name
+        self._attr_icon = icon
+        self._attr_native_unit_of_measurement = unit
+        self._attr_unique_id = f"{entry.entry_id}_{side}_{key}"
+        self._attr_device_info = device_info
+
+    @property
+    def name(self) -> str:
+        return self._display_name
+
+    @property
+    def native_value(self) -> int | None:
+        val = self.coordinator.data.side_vitals_summary(self._side).get(self._key)
+        if val is None or val == 0:
+            return None
+        return val
+
+
+class FreeSleepSleepDurationSensor(
+    CoordinatorEntity[FreeSleepCoordinator], SensorEntity
+):
+    """Last sleep duration in hours."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bed-clock"
+    _attr_native_unit_of_measurement = "h"
+
+    def __init__(self, coordinator, entry, side, device_info) -> None:
+        super().__init__(coordinator)
+        self._side = side
+        self._attr_unique_id = f"{entry.entry_id}_{side}_sleep_duration"
+        self._attr_device_info = device_info
+
+    @property
+    def name(self) -> str:
+        return "Last Sleep Duration"
+
+    @property
+    def native_value(self) -> float | None:
+        record = self.coordinator.data.side_last_sleep(self._side)
+        if not record:
+            return None
+        seconds = record.get("sleep_period_seconds", 0)
+        if seconds <= 0:
+            return None
+        return round(seconds / 3600, 1)
+
+
+class FreeSleepTimesExitedBedSensor(
+    CoordinatorEntity[FreeSleepCoordinator], SensorEntity
+):
+    """Number of times exited bed during last sleep."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bed-empty"
+
+    def __init__(self, coordinator, entry, side, device_info) -> None:
+        super().__init__(coordinator)
+        self._side = side
+        self._attr_unique_id = f"{entry.entry_id}_{side}_times_exited_bed"
+        self._attr_device_info = device_info
+
+    @property
+    def name(self) -> str:
+        return "Times Exited Bed"
+
+    @property
+    def native_value(self) -> int | None:
+        record = self.coordinator.data.side_last_sleep(self._side)
+        if not record:
+            return None
+        return record.get("times_exited_bed")

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -14,6 +14,18 @@ from .const import DOMAIN, SCAN_INTERVAL_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
+DAYS_OF_WEEK = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+]
+
+SIDES = ["left", "right"]
+
 
 class FreeSleepData:
     """Container for all Free Sleep data."""
@@ -23,11 +35,19 @@ class FreeSleepData:
         device_status: dict[str, Any],
         settings: dict[str, Any],
         presence: dict[str, Any],
+        schedules: dict[str, Any],
+        services: dict[str, Any],
+        vitals_summary: dict[str, dict[str, Any]],
+        last_sleep: dict[str, dict[str, Any] | None],
     ) -> None:
         """Initialize."""
         self.device_status = device_status
         self.settings = settings
         self.presence = presence
+        self.schedules = schedules
+        self.services = services
+        self.vitals_summary = vitals_summary
+        self.last_sleep = last_sleep
 
     # ── Device status helpers ────────────────────────────────────────
 
@@ -107,6 +127,45 @@ class FreeSleepData:
         """Return True if presence detected on a side."""
         return self.presence.get(side, {}).get("present", False)
 
+    # ── Schedule helpers ─────────────────────────────────────────────
+
+    @staticmethod
+    def _today_key() -> str:
+        """Return today's day-of-week key matching the schedule schema."""
+        return DAYS_OF_WEEK[datetime.now().weekday()]
+
+    def today_alarm(self, side: str) -> dict[str, Any]:
+        """Get today's alarm config for a side."""
+        day = self._today_key()
+        return (
+            self.schedules.get(side, {}).get(day, {}).get("alarm", {})
+        )
+
+    # ── Services helpers ─────────────────────────────────────────────
+
+    @property
+    def biometrics_enabled(self) -> bool:
+        """Return True if biometrics is enabled."""
+        return self.services.get("biometrics", {}).get("enabled", False)
+
+    # ── Vitals helpers ───────────────────────────────────────────────
+
+    def side_vitals_summary(self, side: str) -> dict[str, Any]:
+        """Return vitals summary for a side (last night)."""
+        return self.vitals_summary.get(side, {})
+
+    # ── Sleep helpers ────────────────────────────────────────────────
+
+    def side_last_sleep(self, side: str) -> dict[str, Any] | None:
+        """Return the last sleep record for a side."""
+        return self.last_sleep.get(side)
+
+    # ── Tap gesture helpers ──────────────────────────────────────────
+
+    def tap_config(self, side: str, gesture: str) -> dict[str, Any]:
+        """Return tap config for a gesture on a side."""
+        return self.side_settings(side).get("taps", {}).get(gesture, {})
+
 
 class FreeSleepCoordinator(DataUpdateCoordinator[FreeSleepData]):
     """Coordinator to manage fetching Free Sleep data."""
@@ -126,16 +185,48 @@ class FreeSleepCoordinator(DataUpdateCoordinator[FreeSleepData]):
         try:
             import asyncio
 
-            device_status, settings, presence = await asyncio.gather(
-                self.api.get_device_status(),
-                self.api.get_settings(),
-                self.api.get_presence(),
+            # Core data (fast endpoints)
+            device_status, settings, presence, schedules, services = (
+                await asyncio.gather(
+                    self.api.get_device_status(),
+                    self.api.get_settings(),
+                    self.api.get_presence(),
+                    self.api.get_schedules(),
+                    self.api.get_services(),
+                )
             )
+
+            # Vitals & sleep (heavier queries, may 404 if biometrics off)
+            now = datetime.now()
+            # Look back 12 hours for "last night"
+            start = (now - timedelta(hours=12)).isoformat()
+            end = now.isoformat()
+
+            vitals_summary: dict[str, dict[str, Any]] = {}
+            last_sleep: dict[str, dict[str, Any] | None] = {}
+
+            for side in SIDES:
+                try:
+                    vitals_summary[side] = await self.api.get_vitals_summary(
+                        side, start, end
+                    )
+                except Exception:
+                    vitals_summary[side] = {}
+
+                try:
+                    records = await self.api.get_sleep_records(side, start, end)
+                    last_sleep[side] = records[-1] if records else None
+                except Exception:
+                    last_sleep[side] = None
 
             return FreeSleepData(
                 device_status=device_status,
                 settings=settings,
                 presence=presence,
+                schedules=schedules,
+                services=services,
+                vitals_summary=vitals_summary,
+                last_sleep=last_sleep,
             )
         except FreeSleepApiError as err:
             raise UpdateFailed(f"Error communicating with Free Sleep: {err}") from err

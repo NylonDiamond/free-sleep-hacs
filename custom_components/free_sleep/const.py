@@ -17,6 +17,7 @@ PLATFORMS = [
     "button",
     "climate",
     "number",
+    "select",
     "sensor",
     "switch",
     "time",
