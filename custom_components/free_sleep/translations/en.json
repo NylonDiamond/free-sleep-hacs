@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Free Sleep",
+        "description": "Enter the IP address of your Eight Sleep pod running Free Sleep.",
+        "data": {
+          "host": "Host (IP address)",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the pod. Please check the IP and ensure Free Sleep is running.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This pod is already configured."
+    }
+  }
+}

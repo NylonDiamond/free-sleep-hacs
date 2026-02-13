@@ -1,0 +1,10 @@
+{
+  "domain": "free_sleep",
+  "name": "Free Sleep",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/throwaway31265/free-sleep",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "version": "1.0.0"
+}
