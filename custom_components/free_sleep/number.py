@@ -115,8 +115,9 @@ class FreeSleepAlarmVibrationIntensity(
 
     async def async_set_native_value(self, value: float) -> None:
         day = self.coordinator.data._today_key()
+        current = self.coordinator.data.today_alarm(self._side)
         await self.coordinator.api.set_alarm(
-            self._side, day, {"vibrationIntensity": int(value)}
+            self._side, day, {"vibrationIntensity": int(value)}, current
         )
         await self.coordinator.async_request_refresh()
 
@@ -152,8 +153,9 @@ class FreeSleepAlarmTemperature(
 
     async def async_set_native_value(self, value: float) -> None:
         day = self.coordinator.data._today_key()
+        current = self.coordinator.data.today_alarm(self._side)
         await self.coordinator.api.set_alarm(
-            self._side, day, {"alarmTemperature": int(value)}
+            self._side, day, {"alarmTemperature": int(value)}, current
         )
         await self.coordinator.async_request_refresh()
 
@@ -187,7 +189,8 @@ class FreeSleepAlarmDuration(
 
     async def async_set_native_value(self, value: float) -> None:
         day = self.coordinator.data._today_key()
+        current = self.coordinator.data.today_alarm(self._side)
         await self.coordinator.api.set_alarm(
-            self._side, day, {"duration": int(value)}
+            self._side, day, {"duration": int(value)}, current
         )
         await self.coordinator.async_request_refresh()

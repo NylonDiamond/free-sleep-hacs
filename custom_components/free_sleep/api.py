@@ -181,10 +181,17 @@ class FreeSleepApi:
         await self.set_services({"biometrics": {"enabled": enabled}})
 
     async def set_alarm(
-        self, side: str, day: str, alarm_data: dict[str, Any]
+        self, side: str, day: str, alarm_data: dict[str, Any],
+        current_alarm: dict[str, Any] | None = None,
     ) -> None:
-        """Update alarm settings for a side and day."""
-        await self.set_schedules({side: {day: {"alarm": alarm_data}}})
+        """Update alarm settings for a side and day.
+
+        The server replaces the entire alarm object on POST, so we merge
+        *alarm_data* into *current_alarm* to avoid wiping unrelated fields.
+        """
+        merged = dict(current_alarm or {})
+        merged.update(alarm_data)
+        await self.set_schedules({side: {day: {"alarm": merged}}})
 
     async def set_tap_config(
         self, side: str, gesture: str, config: dict[str, Any]

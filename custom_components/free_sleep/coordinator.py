@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import FreeSleepApi, FreeSleepApiError
 from .const import DOMAIN, SCAN_INTERVAL_SECONDS
@@ -132,7 +133,7 @@ class FreeSleepData:
     @staticmethod
     def _today_key() -> str:
         """Return today's day-of-week key matching the schedule schema."""
-        return DAYS_OF_WEEK[datetime.now().weekday()]
+        return DAYS_OF_WEEK[dt_util.now().weekday()]
 
     def today_alarm(self, side: str) -> dict[str, Any]:
         """Get today's alarm config for a side."""
@@ -159,6 +160,50 @@ class FreeSleepData:
     def side_last_sleep(self, side: str) -> dict[str, Any] | None:
         """Return the last sleep record for a side."""
         return self.last_sleep.get(side)
+
+    # ── Schedule override helpers ────────────────────────────────────
+
+    def alarm_override(self, side: str) -> dict[str, Any]:
+        """Get the alarm schedule override for a side."""
+        return (
+            self.side_settings(side)
+            .get("scheduleOverrides", {})
+            .get("alarm", {})
+        )
+
+    def is_alarm_disabled_tonight(self, side: str) -> bool:
+        """Return True if the alarm is temporarily disabled for tonight.
+
+        The override is active only when ``disabled`` is True **and**
+        ``expiresAt`` is still in the future.
+        """
+        override = self.alarm_override(side)
+        if not override.get("disabled", False):
+            return False
+        expires_at = override.get("expiresAt", "")
+        if not expires_at:
+            return False
+        try:
+            expires = dt_util.parse_datetime(expires_at)
+            if expires is None:
+                return False
+            return expires > dt_util.now()
+        except (ValueError, TypeError):
+            return False
+
+    def tonight_alarm(self, side: str) -> dict[str, Any]:
+        """Get the alarm config for 'tonight' using noon crossover logic.
+
+        If the current time is noon or later the target day is tomorrow;
+        otherwise it is today.  This matches the web-app behaviour.
+        """
+        now = dt_util.now()
+        if now.hour >= 12:
+            target = now + timedelta(days=1)
+        else:
+            target = now
+        day_key = DAYS_OF_WEEK[target.weekday()]
+        return self.schedules.get(side, {}).get(day_key, {}).get("alarm", {})
 
     # ── Tap gesture helpers ──────────────────────────────────────────
 
@@ -197,7 +242,7 @@ class FreeSleepCoordinator(DataUpdateCoordinator[FreeSleepData]):
             )
 
             # Vitals & sleep (heavier queries, may 404 if biometrics off)
-            now = datetime.now()
+            now = dt_util.now()
             # Look back 12 hours for "last night"
             start = (now - timedelta(hours=12)).isoformat()
             end = now.isoformat()

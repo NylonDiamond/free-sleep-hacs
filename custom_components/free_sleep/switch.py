@@ -5,12 +5,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from datetime import datetime, timedelta
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .coordinator import FreeSleepCoordinator
@@ -32,6 +35,7 @@ async def async_setup_entry(
     for side in SIDES:
         entities.append(FreeSleepAwayModeSwitch(coordinator, entry, side))
         entities.append(FreeSleepAlarmEnabledSwitch(coordinator, entry, side))
+        entities.append(FreeSleepAlarmDisableTonightSwitch(coordinator, entry, side))
 
     entities.append(FreeSleepPrimeDailySwitch(coordinator, entry))
     entities.append(FreeSleepBiometricsSwitch(coordinator, entry))
@@ -103,12 +107,14 @@ class FreeSleepAlarmEnabledSwitch(
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         day = self.coordinator.data._today_key()
-        await self.coordinator.api.set_alarm(self._side, day, {"enabled": True})
+        current = self.coordinator.data.today_alarm(self._side)
+        await self.coordinator.api.set_alarm(self._side, day, {"enabled": True}, current)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         day = self.coordinator.data._today_key()
-        await self.coordinator.api.set_alarm(self._side, day, {"enabled": False})
+        current = self.coordinator.data.today_alarm(self._side)
+        await self.coordinator.api.set_alarm(self._side, day, {"enabled": False}, current)
         await self.coordinator.async_request_refresh()
 
 
@@ -179,4 +185,102 @@ class FreeSleepBiometricsSwitch(
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.api.set_biometrics_enabled(False)
+        await self.coordinator.async_request_refresh()
+
+
+class FreeSleepAlarmDisableTonightSwitch(
+    CoordinatorEntity[FreeSleepCoordinator], SwitchEntity
+):
+    """Switch to temporarily disable the alarm for tonight.
+
+    Mirrors the web app's "Disable for tonight" button.  When turned on the
+    alarm that would fire next (using noon-crossover logic) is skipped.  The
+    override auto-expires 2 minutes after the scheduled alarm time.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alarm-off"
+
+    def __init__(self, coordinator, entry, side) -> None:
+        super().__init__(coordinator)
+        self._side = side
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_{side}_alarm_disable_tonight"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_{side}")},
+        )
+
+    @property
+    def name(self) -> str:
+        return "Alarm Disable Tonight"
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.data.is_alarm_disabled_tonight(self._side)
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Disable tonight's alarm by computing expiresAt from the schedule."""
+        alarm = self.coordinator.data.tonight_alarm(self._side)
+        alarm_time_str = alarm.get("time", "")
+        if not alarm_time_str:
+            _LOGGER.warning(
+                "Cannot disable tonight's alarm for %s: no alarm time configured",
+                self._side,
+            )
+            return
+
+        # Parse the alarm time (HH:MM) and attach tonight's date
+        now = dt_util.now()
+        if now.hour >= 12:
+            target_date = (now + timedelta(days=1)).date()
+        else:
+            target_date = now.date()
+
+        try:
+            parts = alarm_time_str.split(":")
+            hour, minute = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            _LOGGER.error(
+                "Cannot parse alarm time '%s' for %s", alarm_time_str, self._side
+            )
+            return
+
+        # Build the alarm datetime in the HA timezone, then add 2 minutes
+        tz = dt_util.get_default_time_zone()
+        alarm_dt = datetime(
+            target_date.year, target_date.month, target_date.day,
+            hour, minute, 0, tzinfo=tz,
+        )
+        expires_at = alarm_dt + timedelta(minutes=2)
+
+        await self.coordinator.api.set_settings(
+            {
+                self._side: {
+                    "scheduleOverrides": {
+                        "alarm": {
+                            "disabled": True,
+                            "timeOverride": "",
+                            "expiresAt": expires_at.isoformat(),
+                        }
+                    }
+                }
+            }
+        )
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Re-enable tonight's alarm by clearing the override."""
+        await self.coordinator.api.set_settings(
+            {
+                self._side: {
+                    "scheduleOverrides": {
+                        "alarm": {
+                            "disabled": False,
+                            "timeOverride": "",
+                            "expiresAt": "",
+                        }
+                    }
+                }
+            }
+        )
         await self.coordinator.async_request_refresh()

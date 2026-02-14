@@ -112,5 +112,6 @@ class FreeSleepAlarmTime(
     async def async_set_value(self, value: dt_time) -> None:
         time_str = f"{value.hour:02d}:{value.minute:02d}"
         day = self.coordinator.data._today_key()
-        await self.coordinator.api.set_alarm(self._side, day, {"time": time_str})
+        current = self.coordinator.data.today_alarm(self._side)
+        await self.coordinator.api.set_alarm(self._side, day, {"time": time_str}, current)
         await self.coordinator.async_request_refresh()

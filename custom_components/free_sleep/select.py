@@ -163,7 +163,8 @@ class FreeSleepAlarmVibrationPatternSelect(
 
     async def async_select_option(self, option: str) -> None:
         day = self.coordinator.data._today_key()
+        current = self.coordinator.data.today_alarm(self._side)
         await self.coordinator.api.set_alarm(
-            self._side, day, {"vibrationPattern": option}
+            self._side, day, {"vibrationPattern": option}, current
         )
         await self.coordinator.async_request_refresh()
