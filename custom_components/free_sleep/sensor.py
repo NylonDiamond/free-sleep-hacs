@@ -41,6 +41,7 @@ async def async_setup_entry(
         FreeSleepCoverVersionSensor(coordinator, entry, pod_device),
         FreeSleepHubVersionSensor(coordinator, entry, pod_device),
         FreeSleepVersionSensor(coordinator, entry, pod_device),
+        FreeSleepWebAppUrlSensor(coordinator, entry, pod_device),
     ]
 
     for side in SIDES:
@@ -214,6 +215,28 @@ class FreeSleepVersionSensor(
         version = self.coordinator.data.free_sleep_version
         branch = self.coordinator.data.free_sleep_branch
         return f"{version} ({branch})"
+
+
+class FreeSleepWebAppUrlSensor(
+    CoordinatorEntity[FreeSleepCoordinator], SensorEntity
+):
+    """Web app URL sensor - shows the free-sleep web interface URL."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:web"
+
+    def __init__(self, coordinator, entry, device_info) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_web_app_url"
+        self._attr_device_info = device_info
+
+    @property
+    def name(self) -> str:
+        return "Web App URL"
+
+    @property
+    def native_value(self) -> str:
+        return self.coordinator.api.base_url
 
 
 class FreeSleepCurrentTempSensor(
