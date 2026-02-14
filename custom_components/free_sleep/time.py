@@ -14,7 +14,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .coordinator import FreeSleepCoordinator, DAYS_OF_WEEK
+from .coordinator import FreeSleepCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,11 +48,6 @@ async def async_setup_entry(
         entities.append(
             FreeSleepAlarmTimeTonight(coordinator, entry, side, side_device)
         )
-        # Per-day recurring schedule
-        for day in DAYS_OF_WEEK:
-            entities.append(
-                FreeSleepAlarmTimeDay(coordinator, entry, side, day, side_device)
-            )
 
     async_add_entities(entities)
 
@@ -159,48 +154,5 @@ class FreeSleepAlarmTimeTonight(
                     }
                 }
             }
-        )
-        await self.coordinator.async_request_refresh()
-
-
-class FreeSleepAlarmTimeDay(
-    CoordinatorEntity[FreeSleepCoordinator], TimeEntity
-):
-    """Alarm time for a specific day of week (recurring schedule)."""
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:calendar-clock"
-
-    def __init__(self, coordinator, entry, side, day, device_info) -> None:
-        super().__init__(coordinator)
-        self._side = side
-        self._day = day
-        self._attr_unique_id = f"{entry.entry_id}_{side}_alarm_time_{day}"
-        self._attr_device_info = device_info
-
-    @property
-    def name(self) -> str:
-        day_title = self._day.title()
-        return f"Alarm Time {day_title}"
-
-    @property
-    def native_value(self) -> dt_time | None:
-        time_str = (
-            self.coordinator.data.schedules.get(self._side, {})
-            .get(self._day, {})
-            .get("alarm", {})
-            .get("time", "")
-        )
-        return _parse_time(time_str) if time_str else None
-
-    async def async_set_value(self, value: dt_time) -> None:
-        time_str = f"{value.hour:02d}:{value.minute:02d}"
-        current = (
-            self.coordinator.data.schedules.get(self._side, {})
-            .get(self._day, {})
-            .get("alarm", {})
-        )
-        await self.coordinator.api.set_alarm(
-            self._side, self._day, {"time": time_str}, current
         )
         await self.coordinator.async_request_refresh()
