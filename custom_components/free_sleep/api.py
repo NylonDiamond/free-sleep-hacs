@@ -202,3 +202,41 @@ class FreeSleepApi:
     async def test_connection(self) -> dict[str, Any]:
         """Test the connection by fetching device status."""
         return await self.get_device_status()
+
+    # ── Server Status ────────────────────────────────────────────────
+
+    async def get_server_status(self) -> dict[str, Any]:
+        """GET /api/serverStatus - fetch health status of all services."""
+        return await self._request("GET", "/api/serverStatus")
+
+    # ── Alarm Trigger ────────────────────────────────────────────────
+
+    async def trigger_alarm(
+        self, side: str, vibration_intensity: int, vibration_pattern: str, duration: int
+    ) -> None:
+        """POST /api/alarm - trigger alarm vibration immediately."""
+        await self._request(
+            "POST",
+            "/api/alarm",
+            json_data={
+                "side": side,
+                "vibrationIntensity": vibration_intensity,
+                "vibrationPattern": vibration_pattern,
+                "duration": duration,
+                "force": False,
+            },
+        )
+
+    # ── Gain / Reboot Daily ───────────────────────────────────────────
+
+    async def set_reboot_daily(self, enabled: bool) -> None:
+        """Enable or disable daily reboot."""
+        await self.set_settings({"rebootDaily": enabled})
+
+    async def set_gain(self, side: str, gain: int) -> None:
+        """Set heating/cooling gain (power multiplier) for a side.
+
+        Gain is stored in device status settings, not main settings.
+        """
+        key = f"gain{side.title()}"
+        await self.set_device_status({"settings": {key: gain}})

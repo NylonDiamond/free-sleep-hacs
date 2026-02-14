@@ -39,6 +39,10 @@ async def async_setup_entry(
 
     entities.append(FreeSleepPrimeDailySwitch(coordinator, entry))
     entities.append(FreeSleepBiometricsSwitch(coordinator, entry))
+    entities.append(FreeSleepRebootDailySwitch(coordinator, entry))
+
+    for side in SIDES:
+        entities.append(FreeSleepTempScheduleDisableTonightSwitch(coordinator, entry, side))
 
     async_add_entities(entities)
 
@@ -277,6 +281,103 @@ class FreeSleepAlarmDisableTonightSwitch(
                         "alarm": {
                             "disabled": False,
                             "timeOverride": "",
+                            "expiresAt": "",
+                        }
+                    }
+                }
+            }
+        )
+        await self.coordinator.async_request_refresh()
+
+
+class FreeSleepRebootDailySwitch(CoordinatorEntity[FreeSleepCoordinator], SwitchEntity):
+    """Switch to enable/disable daily automatic reboot."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:restart-clock"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_reboot_daily"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Eight Sleep Pod",
+            manufacturer="Eight Sleep",
+            model=coordinator.data.cover_version,
+            sw_version=coordinator.data.free_sleep_version,
+        )
+
+    @property
+    def name(self) -> str:
+        return "Daily Reboot"
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.data.reboot_daily_enabled
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.api.set_reboot_daily(True)
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.api.set_reboot_daily(False)
+        await self.coordinator.async_request_refresh()
+
+
+class FreeSleepTempScheduleDisableTonightSwitch(CoordinatorEntity[FreeSleepCoordinator], SwitchEntity):
+    """Switch to temporarily disable temperature schedules for tonight."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-off"
+
+    def __init__(self, coordinator, entry, side) -> None:
+        super().__init__(coordinator)
+        self._side = side
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_{side}_temp_schedule_disable_tonight"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_{side}")},
+        )
+
+    @property
+    def name(self) -> str:
+        return "Temp Schedule Disable Tonight"
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.data.is_temp_schedule_disabled_tonight(self._side)
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Disable temp schedules until noon tomorrow."""
+        now = dt_util.now()
+        if now.hour >= 12:
+            target_date = (now + timedelta(days=1)).date()
+        else:
+            target_date = now.date()
+        tz = dt_util.get_default_time_zone()
+        expires_at = datetime(target_date.year, target_date.month, target_date.day, 12, 0, 0, tzinfo=tz)
+        await self.coordinator.api.set_settings(
+            {
+                self._side: {
+                    "scheduleOverrides": {
+                        "temperatureSchedules": {
+                            "disabled": True,
+                            "expiresAt": expires_at.isoformat(),
+                        }
+                    }
+                }
+            }
+        )
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Re-enable temp schedules."""
+        await self.coordinator.api.set_settings(
+            {
+                self._side: {
+                    "scheduleOverrides": {
+                        "temperatureSchedules": {
+                            "disabled": False,
                             "expiresAt": "",
                         }
                     }

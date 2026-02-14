@@ -40,6 +40,7 @@ class FreeSleepData:
         services: dict[str, Any],
         vitals_summary: dict[str, dict[str, Any]],
         last_sleep: dict[str, dict[str, Any] | None],
+        server_status: dict[str, Any],
     ) -> None:
         """Initialize."""
         self.device_status = device_status
@@ -49,6 +50,7 @@ class FreeSleepData:
         self.services = services
         self.vitals_summary = vitals_summary
         self.last_sleep = last_sleep
+        self.server_status = server_status
 
     # ── Device status helpers ────────────────────────────────────────
 
@@ -210,6 +212,93 @@ class FreeSleepData:
         """Return tap config for a gesture on a side."""
         return self.side_settings(side).get("taps", {}).get(gesture, {})
 
+    # ── Device status extras ─────────────────────────────────────────
+
+    def seconds_remaining(self, side: str) -> int:
+        """Return seconds until side auto-shuts off (0 if off)."""
+        return self.side_status(side).get("secondsRemaining", 0)
+
+    def gain(self, side: str) -> int:
+        """Return heating/cooling gain (power multiplier) for a side."""
+        key = f"gain{side.title()}"
+        return self.device_status.get("settings", {}).get(key, 100)
+
+    # ── Reboot daily ─────────────────────────────────────────────────
+
+    @property
+    def reboot_daily_enabled(self) -> bool:
+        """Return True if daily reboot is enabled."""
+        return self.settings.get("rebootDaily", False)
+
+    # ── Next alarm timestamp ─────────────────────────────────────────
+
+    def next_alarm_datetime(self, side: str) -> dt_util.dt.datetime | None:
+        """Return the next alarm as a datetime object, or None if disabled."""
+        alarm = self.today_alarm(side)
+        if not alarm.get("enabled", False):
+            return None
+        if self.is_alarm_disabled_tonight(side):
+            return None
+        time_str = alarm.get("time", "")
+        if not time_str:
+            return None
+        try:
+            parts = time_str.split(":")
+            hour, minute = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            return None
+        now = dt_util.now()
+        if now.hour >= 12:
+            target_date = (now + timedelta(days=1)).date()
+        else:
+            target_date = now.date()
+        tz = dt_util.get_default_time_zone()
+        return dt_util.dt.datetime(
+            target_date.year, target_date.month, target_date.day,
+            hour, minute, 0, tzinfo=tz,
+        )
+
+    # ── Temperature schedule override ────────────────────────────────
+
+    def temp_schedule_override(self, side: str) -> dict[str, Any]:
+        """Get the temperature schedule override for a side."""
+        return (
+            self.side_settings(side)
+            .get("scheduleOverrides", {})
+            .get("temperatureSchedules", {})
+        )
+
+    def is_temp_schedule_disabled_tonight(self, side: str) -> bool:
+        """Return True if temp schedules are temporarily disabled for tonight."""
+        override = self.temp_schedule_override(side)
+        if not override.get("disabled", False):
+            return False
+        expires_at = override.get("expiresAt", "")
+        if not expires_at:
+            return False
+        try:
+            expires = dt_util.parse_datetime(expires_at)
+            if expires is None:
+                return False
+            return expires > dt_util.now()
+        except (ValueError, TypeError):
+            return False
+
+    # ── Server status helpers ────────────────────────────────────────
+
+    def server_service_status(self, service_name: str) -> dict[str, Any]:
+        """Get status dict for a specific server service."""
+        return self.server_status.get(service_name, {})
+
+    def is_server_healthy(self) -> bool:
+        """Return True if all critical services are healthy."""
+        critical = ["franken", "database", "biometricsStream"]
+        for svc in critical:
+            status = self.server_service_status(svc).get("status", "unknown")
+            if status in ("failed", "not_started"):
+                return False
+        return True
+
 
 class FreeSleepCoordinator(DataUpdateCoordinator[FreeSleepData]):
     """Coordinator to manage fetching Free Sleep data."""
@@ -230,13 +319,14 @@ class FreeSleepCoordinator(DataUpdateCoordinator[FreeSleepData]):
             import asyncio
 
             # Core data (fast endpoints)
-            device_status, settings, presence, schedules, services = (
+            device_status, settings, presence, schedules, services, server_status = (
                 await asyncio.gather(
                     self.api.get_device_status(),
                     self.api.get_settings(),
                     self.api.get_presence(),
                     self.api.get_schedules(),
                     self.api.get_services(),
+                    self.api.get_server_status(),
                 )
             )
 
@@ -271,6 +361,7 @@ class FreeSleepCoordinator(DataUpdateCoordinator[FreeSleepData]):
                 services=services,
                 vitals_summary=vitals_summary,
                 last_sleep=last_sleep,
+                server_status=server_status,
             )
         except FreeSleepApiError as err:
             raise UpdateFailed(f"Error communicating with Free Sleep: {err}") from err

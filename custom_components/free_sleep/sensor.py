@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
+from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE
+from homeassistant.const import PERCENTAGE, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -87,6 +87,12 @@ async def async_setup_entry(
         )
         entities.append(
             FreeSleepTimesExitedBedSensor(coordinator, entry, side, side_device)
+        )
+        entities.append(
+            FreeSleepTimeRemainingSensor(coordinator, entry, side, side_device)
+        )
+        entities.append(
+            FreeSleepNextAlarmSensor(coordinator, entry, side, side_device)
         )
 
     async_add_entities(entities)
@@ -321,3 +327,53 @@ class FreeSleepTimesExitedBedSensor(
         if not record:
             return None
         return record.get("times_exited_bed")
+
+
+class FreeSleepTimeRemainingSensor(
+    CoordinatorEntity[FreeSleepCoordinator], SensorEntity
+):
+    """Seconds remaining until side auto-shuts off."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:timer-outline"
+
+    def __init__(self, coordinator, entry, side, device_info) -> None:
+        super().__init__(coordinator)
+        self._side = side
+        self._attr_unique_id = f"{entry.entry_id}_{side}_time_remaining"
+        self._attr_device_info = device_info
+
+    @property
+    def name(self) -> str:
+        return "Time Remaining"
+
+    @property
+    def native_value(self) -> int:
+        return self.coordinator.data.seconds_remaining(self._side)
+
+
+class FreeSleepNextAlarmSensor(
+    CoordinatorEntity[FreeSleepCoordinator], SensorEntity
+):
+    """Next alarm datetime (timestamp sensor)."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:alarm"
+
+    def __init__(self, coordinator, entry, side, device_info) -> None:
+        super().__init__(coordinator)
+        self._side = side
+        self._attr_unique_id = f"{entry.entry_id}_{side}_next_alarm"
+        self._attr_device_info = device_info
+
+    @property
+    def name(self) -> str:
+        return "Next Alarm"
+
+    @property
+    def native_value(self):
+        return self.coordinator.data.next_alarm_datetime(self._side)

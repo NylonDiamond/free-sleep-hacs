@@ -51,6 +51,9 @@ async def async_setup_entry(
         entities.append(
             FreeSleepAlarmDuration(coordinator, entry, side, side_device)
         )
+        entities.append(
+            FreeSleepGain(coordinator, entry, side, side_device)
+        )
 
     async_add_entities(entities)
 
@@ -193,4 +196,33 @@ class FreeSleepAlarmDuration(
         await self.coordinator.api.set_alarm(
             self._side, day, {"duration": int(value)}, current
         )
+        await self.coordinator.async_request_refresh()
+
+
+class FreeSleepGain(CoordinatorEntity[FreeSleepCoordinator], NumberEntity):
+    """Heating/cooling gain (power multiplier) for a side."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:lightning-bolt"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_mode = NumberMode.SLIDER
+
+    def __init__(self, coordinator, entry, side, device_info) -> None:
+        super().__init__(coordinator)
+        self._side = side
+        self._attr_unique_id = f"{entry.entry_id}_{side}_gain"
+        self._attr_device_info = device_info
+
+    @property
+    def name(self) -> str:
+        return "Gain"
+
+    @property
+    def native_value(self) -> float:
+        return self.coordinator.data.gain(self._side)
+
+    async def async_set_native_value(self, value: float) -> None:
+        await self.coordinator.api.set_gain(self._side, int(value))
         await self.coordinator.async_request_refresh()

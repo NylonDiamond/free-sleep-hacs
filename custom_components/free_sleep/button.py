@@ -16,6 +16,8 @@ from .coordinator import FreeSleepCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+SIDES = ["left", "right"]
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -32,11 +34,19 @@ async def async_setup_entry(
         sw_version=coordinator.data.free_sleep_version,
     )
 
-    async_add_entities([
+    entities: list[ButtonEntity] = [
         FreeSleepPrimeButton(coordinator, entry, pod_device),
         FreeSleepRebootButton(coordinator, entry, pod_device),
         FreeSleepUpdateButton(coordinator, entry, pod_device),
-    ])
+    ]
+
+    for side in SIDES:
+        side_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_{side}")},
+        )
+        entities.append(FreeSleepTriggerAlarmButton(coordinator, entry, side, side_device))
+
+    async_add_entities(entities)
 
 
 class FreeSleepPrimeButton(
@@ -104,3 +114,32 @@ class FreeSleepUpdateButton(
     async def async_press(self) -> None:
         """Press the button."""
         await self.coordinator.api.update()
+
+
+class FreeSleepTriggerAlarmButton(
+    CoordinatorEntity[FreeSleepCoordinator], ButtonEntity
+):
+    """Button to trigger alarm vibration immediately."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alarm-bell"
+
+    def __init__(self, coordinator, entry, side, device_info) -> None:
+        super().__init__(coordinator)
+        self._side = side
+        self._attr_unique_id = f"{entry.entry_id}_{side}_trigger_alarm"
+        self._attr_device_info = device_info
+
+    @property
+    def name(self) -> str:
+        return "Trigger Alarm"
+
+    async def async_press(self) -> None:
+        """Press the button - trigger alarm using tonight's settings."""
+        alarm = self.coordinator.data.tonight_alarm(self._side)
+        intensity = alarm.get("vibrationIntensity", 100)
+        pattern = alarm.get("vibrationPattern", "rise")
+        duration = alarm.get("duration", 10)
+        await self.coordinator.api.trigger_alarm(
+            self._side, intensity, pattern, duration
+        )

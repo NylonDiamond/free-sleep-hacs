@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -39,6 +40,7 @@ async def async_setup_entry(
 
     entities: list[BinarySensorEntity] = [
         FreeSleepPrimingSensor(coordinator, entry, pod_device),
+        FreeSleepServerHealthSensor(coordinator, entry, pod_device),
     ]
 
     for side in SIDES:
@@ -152,3 +154,39 @@ class FreeSleepPrimingSensor(
     @property
     def is_on(self) -> bool:
         return self.coordinator.data.is_priming
+
+
+class FreeSleepServerHealthSensor(
+    CoordinatorEntity[FreeSleepCoordinator], BinarySensorEntity
+):
+    """Server health diagnostic sensor."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_icon = "mdi:server"
+
+    def __init__(self, coordinator, entry, device_info) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_server_health"
+        self._attr_device_info = device_info
+
+    @property
+    def name(self) -> str:
+        return "Server Health Problem"
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if there is a server health problem."""
+        return not self.coordinator.data.is_server_healthy()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return server status details."""
+        attrs: dict[str, Any] = {}
+        critical = ["franken", "database", "biometricsStream"]
+        for svc in critical:
+            status = self.coordinator.data.server_service_status(svc)
+            attrs[f"{svc}_status"] = status.get("status", "unknown")
+            if msg := status.get("message"):
+                attrs[f"{svc}_message"] = msg
+        return attrs
