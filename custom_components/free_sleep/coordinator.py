@@ -132,11 +132,20 @@ class FreeSleepData:
 
     @staticmethod
     def _today_key() -> str:
-        """Return today's day-of-week key matching the schedule schema."""
-        return DAYS_OF_WEEK[dt_util.now().weekday()]
+        """Return the day-of-week key for the *next* alarm.
+
+        Uses noon-crossover logic matching the web app: if the current
+        time is noon or later the target day is tomorrow, otherwise today.
+        """
+        now = dt_util.now()
+        if now.hour >= 12:
+            target = now + timedelta(days=1)
+        else:
+            target = now
+        return DAYS_OF_WEEK[target.weekday()]
 
     def today_alarm(self, side: str) -> dict[str, Any]:
-        """Get today's alarm config for a side."""
+        """Get the next alarm config for a side (noon-crossover)."""
         day = self._today_key()
         return (
             self.schedules.get(side, {}).get(day, {}).get("alarm", {})
@@ -192,18 +201,8 @@ class FreeSleepData:
             return False
 
     def tonight_alarm(self, side: str) -> dict[str, Any]:
-        """Get the alarm config for 'tonight' using noon crossover logic.
-
-        If the current time is noon or later the target day is tomorrow;
-        otherwise it is today.  This matches the web-app behaviour.
-        """
-        now = dt_util.now()
-        if now.hour >= 12:
-            target = now + timedelta(days=1)
-        else:
-            target = now
-        day_key = DAYS_OF_WEEK[target.weekday()]
-        return self.schedules.get(side, {}).get(day_key, {}).get("alarm", {})
+        """Get the alarm config for 'tonight' (alias for today_alarm)."""
+        return self.today_alarm(side)
 
     # ── Tap gesture helpers ──────────────────────────────────────────
 
