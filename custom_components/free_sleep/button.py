@@ -35,6 +35,7 @@ async def async_setup_entry(
     )
 
     entities: list[ButtonEntity] = [
+        FreeSleepWebAppButton(coordinator, entry, pod_device),
         FreeSleepPrimeButton(coordinator, entry, pod_device),
         FreeSleepRebootButton(coordinator, entry, pod_device),
         FreeSleepUpdateButton(coordinator, entry, pod_device),
@@ -47,6 +48,36 @@ async def async_setup_entry(
         entities.append(FreeSleepTriggerAlarmButton(coordinator, entry, side, side_device))
 
     async_add_entities(entities)
+
+
+class FreeSleepWebAppButton(
+    CoordinatorEntity[FreeSleepCoordinator], ButtonEntity
+):
+    """Button to open the Free Sleep web app."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:web"
+    _attr_entity_category = "diagnostic"
+
+    def __init__(self, coordinator, entry, device_info) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_web_app"
+        self._attr_device_info = device_info
+
+    @property
+    def name(self) -> str:
+        return "Open Web App"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        """Return the web app URL."""
+        return {"url": self.coordinator.api.base_url}
+
+    async def async_press(self) -> None:
+        """Press the button - opens web app (handled by frontend)."""
+        # The button press itself doesn't do anything server-side
+        # The URL is exposed in extra_state_attributes for the frontend
+        pass
 
 
 class FreeSleepPrimeButton(
