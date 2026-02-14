@@ -57,7 +57,6 @@ class FreeSleepWebAppButton(
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:web"
-    _attr_entity_category = "diagnostic"
 
     def __init__(self, coordinator, entry, device_info) -> None:
         super().__init__(coordinator)
